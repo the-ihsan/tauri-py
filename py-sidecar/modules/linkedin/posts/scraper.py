@@ -22,7 +22,7 @@ from browser.install import ensure_playwright_browsers
 from browser.launch import chromium_launch_kwargs
 from browser.pages import close_page, open_page
 from browser.sessions.storage import storage_path
-from tasks.base import TaskContext
+from modules.tasks.base import TaskContext
 
 from .extractors import EXPAND_TRUNCATED_POSTS_JS, EXTRACT_POSTS_JS, parse_posts
 from .scrolling import count_posts_in_dom, scroll_feed_down

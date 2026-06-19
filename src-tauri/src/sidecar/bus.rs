@@ -12,7 +12,7 @@ pub fn spawn_daemon(config: &Config) -> Result<Child, String> {
     let mut cmd = if config.dev {
         let mut c = Command::new("uv");
         c.current_dir(&config.project_root);
-        c.args(["run", "python", "py-sidecar/runtime/daemon.py"]);
+        c.args(["run", "python", "py-sidecar/main.py"]);
         c
     } else {
         let exe = config.sidecar_bundle.join(super::DAEMON_EXE);
@@ -43,10 +43,7 @@ pub fn spawn_daemon(config: &Config) -> Result<Child, String> {
 
     if config.dev {
         let py_sidecar = config.project_root.join("py-sidecar");
-        let py_runtime = py_sidecar.join("runtime");
-        let pythonpath = std::env::join_paths([py_runtime, py_sidecar])
-            .map_err(|e| format!("failed to build PYTHONPATH: {e}"))?;
-        cmd.env("PYTHONPATH", pythonpath);
+        cmd.env("PYTHONPATH", py_sidecar);
     }
 
     cmd.spawn()

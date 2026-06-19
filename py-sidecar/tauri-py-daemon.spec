@@ -8,20 +8,18 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 root = Path(SPECPATH)
-runtime = root / "runtime"
 
 playwright_datas, playwright_binaries, playwright_hiddenimports = collect_all("playwright")
 
 a = Analysis(
-    [str(runtime / "daemon.py")],
-    pathex=[str(root), str(runtime)],
+    [str(root / "main.py")],
+    pathex=[str(root)],
     binaries=playwright_binaries,
     datas=playwright_datas,
     hiddenimports=[
         *playwright_hiddenimports,
         *collect_submodules("browser"),
-        *collect_submodules("linkedin"),
-        *collect_submodules("tasks"),
+        *collect_submodules("modules"),
         *collect_submodules("runtime"),
         "greenlet",
         "pyee",

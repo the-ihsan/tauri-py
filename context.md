@@ -101,7 +101,7 @@ Use this to know *where* code belongs. Do not mirror every file here.
 | `modules/__init__.py` | Lists sidecar modules registered at startup (`get_modules()`). |
 | `browser/` | Generic Playwright browser/session infrastructure: launch, control, install, `sessions/manager.py`. |
 | `tasks/` | **Generic task framework:** registry, `BaseTask`, `TaskManager`, `tasks.start` / `tasks.control` handlers. |
-| `{platform}/` | Platform-specific automation (e.g. `linkedin/posts/`). Task implementation + registration only; reuse `browser/` and `tasks/`. |
+| `modules/{platform}/` | Platform-specific automation (e.g. `modules/linkedin/posts/`). Task implementation + registration only; reuse `browser/` and `tasks/`. |
 
 ### Config and tooling (repo root)
 
@@ -138,7 +138,7 @@ New automation features should register on **all three layers** with the same ta
 
 ### 4. Python — tasks (`py-sidecar/tasks/`)
 
-- `register_task(key, factory)` in the task module (e.g. `linkedin/posts/task.py`).
+- `register_task(key, factory)` in the task module (e.g. `modules/linkedin/posts/task.py`).
 - Sidecar loads tasks via import in `tasks/module.py`.
 - Handlers: `tasks.start`, `tasks.control` only; tasks emit events, they do not define new top-level sidecar routes unless justified.
 
@@ -178,7 +178,7 @@ On app startup, `running` / `stopping` runs are marked `shutdown` (resumable fro
 
 1. **DB** — migration in `src-tauri/migrations/`, models + CRUD in `src/db/`, register in `migrate.rs` and `db/mod.rs`.
 2. **Rust** — routes/events in `src/modules/<domain>.rs`, register in `modules/mod.rs` via `get_modules()`.
-3. **Python** — task or handler under `py-sidecar/<platform>/` or `browser/`, register in `tasks/registry` or `modules/__init__.py`.
+3. **Python** — task or handler under `py-sidecar/modules/<platform>/` or `browser/`, register in `tasks/registry` or `modules/__init__.py`.
 4. **Frontend** — `src/modules/<name>/` with `index.tsx` registration; API wrapper in module `api.ts` or `src/lib/` if shared; hooks with `useState`/`useEffect` (no react-query unless project standard changes).
 5. **Task type** — `registerTaskType` if it’s a `runs`-tracked task.
 6. **Update `context.md`** — see below.

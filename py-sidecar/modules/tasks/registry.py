@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from tasks.base import BaseTask, TaskContext
+from .base import BaseTask, TaskContext
 
 TaskFactory = Callable[[TaskContext], BaseTask]
 

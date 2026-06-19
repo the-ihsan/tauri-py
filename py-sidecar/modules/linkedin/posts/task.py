@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from tasks.base import BaseTask, TaskContext
-from tasks.registry import register_task
+from modules.tasks.base import BaseTask, TaskContext
+from modules.tasks.registry import register_task
 
 from .scraper import LinkedInPostInputScraper, ScrapeConfig
 

@@ -7,13 +7,23 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypedDict
 
 _INSTALL_LOCK = asyncio.Lock()
+_CHECK_LOCK = threading.Lock()
 _APP_BROWSERS_FLAG = "APP_PLAYWRIGHT_BROWSERS"
 _PERCENT_RE = re.compile(r"(\d+)%\s+of\b")
+# Full Chromium bundles are named chromium-<revision>, not chromium_headless_shell-*.
+_CHROMIUM_BUNDLE_RE = re.compile(r"^chromium-\d")
+_CHROMIUM_EXECUTABLES = (
+    Path("chrome-linux64/chrome"),
+    Path("chrome-linux/chrome"),
+    Path("chrome-win/chrome.exe"),
+    Path("chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
+)
 
 
 class InstallProgress(TypedDict):
@@ -65,22 +75,51 @@ def _install_browsers_path() -> Path:
     return _app_browsers_path() or _default_browsers_path()
 
 
-def _chromium_installed_at(browsers_path: Path) -> bool:
-    prior = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_path)
-    try:
-        from playwright.sync_api import sync_playwright
+def _iter_chromium_bundles(browsers_path: Path):
+    if not browsers_path.is_dir():
+        return
+    for bundle in browsers_path.iterdir():
+        if bundle.is_dir() and _CHROMIUM_BUNDLE_RE.match(bundle.name):
+            yield bundle
 
-        with sync_playwright() as playwright:
-            executable = Path(playwright.chromium.executable_path)
-            return executable.is_file()
-    except Exception:
+
+def _has_chromium_bundle(browsers_path: Path) -> bool:
+    return any(_iter_chromium_bundles(browsers_path))
+
+
+def _chromium_executable_on_disk(browsers_path: Path) -> bool:
+    for bundle in _iter_chromium_bundles(browsers_path):
+        for relative in _CHROMIUM_EXECUTABLES:
+            if (bundle / relative).is_file():
+                return True
+    return False
+
+
+def _chromium_installed_at(browsers_path: Path) -> bool:
+    browsers_path.mkdir(parents=True, exist_ok=True)
+    if _chromium_executable_on_disk(browsers_path):
+        return True
+    # No full Chromium bundle here — avoid an expensive Playwright probe that
+    # still resolves to a non-existent path under this directory.
+    if not _has_chromium_bundle(browsers_path):
         return False
-    finally:
-        if prior is None:
-            os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
-        else:
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = prior
+
+    with _CHECK_LOCK:
+        prior = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_path)
+        try:
+            from playwright.sync_api import sync_playwright
+
+            with sync_playwright() as playwright:
+                executable = Path(playwright.chromium.executable_path)
+                return executable.is_file()
+        except Exception:
+            return False
+        finally:
+            if prior is None:
+                os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
+            else:
+                os.environ["PLAYWRIGHT_BROWSERS_PATH"] = prior
 
 
 def _chromium_installed_sync() -> bool:

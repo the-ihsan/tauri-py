@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from tasks.base import BaseTask, EmitFn, TaskContext, TaskInput
-from tasks.registry import get_task_factory
+from .base import BaseTask, EmitFn, TaskContext, TaskInput
+from .registry import get_task_factory
 
 
 def _to_inputs(raw: Any) -> list[TaskInput]:

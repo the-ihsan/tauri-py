@@ -8,7 +8,6 @@ use std::path::Path;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
 
-pub use migrate::get_schema_version;
 pub use models::{RunInfo, SessionInfo};
 pub use runs::{
     append_log, bump_rerun, create_run, delete_run, get_run, list_inputs, list_item_keys,
@@ -49,13 +48,4 @@ pub async fn init(db_path: &Path) -> Result<SqlitePool, String> {
     reset_running_on_startup(&pool).await?;
     reset_runs_on_startup(&pool).await?;
     Ok(pool)
-}
-
-pub async fn db_status(pool: &SqlitePool) -> Result<String, String> {
-    let version = get_schema_version(pool).await?;
-    sqlx::query("SELECT 1")
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(format!("ok (schema {version})"))
 }

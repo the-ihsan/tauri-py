@@ -8,7 +8,7 @@ mod builder_app;
 
 pub use config::Config;
 pub use registry::Registry;
-pub use facade::{Facade, UiEvent};
+pub use facade::{Facade};
 pub use ui_app::UiApp;
 pub use builder_app::BuilderApp;
 pub use req_res::get_message_handler;
