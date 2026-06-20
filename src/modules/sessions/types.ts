@@ -1,5 +1,7 @@
 export type SessionStatus = "idle" | "running" | "error";
 
+export const DEFAULT_CHROME_SESSION_ID = "default-chrome";
+
 export type SessionInfo = {
   id: string;
   platform: string;
@@ -11,6 +13,10 @@ export type SessionInfo = {
   updated_at: string;
   has_storage: boolean;
 };
+
+export function usesSystemProfile(session: Pick<SessionInfo, "id">): boolean {
+  return session.id === DEFAULT_CHROME_SESSION_ID;
+}
 
 export type SessionLaunchResult = {
   session: SessionInfo;
@@ -38,9 +44,47 @@ export type StoredCookie = {
   same_site: string;
 };
 
-export type SessionClosedPayload = {
+export type SessionLiveRun = {
   session_id: string;
-  run_id?: string;
-  running?: boolean;
+  run_id: string;
+  running: boolean;
+  headless: boolean;
+  url: string;
+};
+
+export type SessionRunEventPayload = SessionLiveRun & {
+  ok?: boolean;
   crashed?: boolean;
 };
+
+export type SessionStatusResult = {
+  sessions: SessionInfo[];
+  instances: SessionLiveRun[];
+};
+
+export type SessionSyncResult = {
+  session: SessionInfo;
+  ok: boolean;
+  files_copied: number;
+  cookie_count: number;
+};
+
+export type SessionStopResult = {
+  session: SessionInfo;
+  run_id: string;
+  running: boolean;
+};
+
+export function isSessionBrowserOpen(
+  session: Pick<SessionInfo, "id">,
+  liveRuns: Record<string, SessionLiveRun>,
+): boolean {
+  return liveRuns[session.id]?.running === true;
+}
+
+export function sessionBrowserStatus(
+  session: Pick<SessionInfo, "id">,
+  liveRuns: Record<string, SessionLiveRun>,
+): SessionStatus {
+  return isSessionBrowserOpen(session, liveRuns) ? "running" : "idle";
+}

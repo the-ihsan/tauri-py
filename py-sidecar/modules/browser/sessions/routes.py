@@ -16,9 +16,10 @@ def _session_id(payload: Any) -> str:
 
 
 def _session_dir(payload: Any) -> Path:
+    session_id = _session_id(payload)
     if isinstance(payload, dict) and payload.get("session_dir"):
         return Path(str(payload["session_dir"]))
-    raise ValueError("session_dir is required")
+    raise ValueError(f"session_dir is required for session '{session_id}'")
 
 
 def _run_id(payload: Any) -> str | None:
@@ -31,6 +32,12 @@ def _check_url(payload: Any) -> str:
     if isinstance(payload, dict) and payload.get("check_url"):
         return str(payload["check_url"])
     raise ValueError("check_url is required")
+
+
+def _platform(payload: Any) -> str:
+    if isinstance(payload, dict) and payload.get("platform"):
+        return str(payload["platform"])
+    raise ValueError("platform is required")
 
 
 def _start_url(payload: Any) -> str | None:
@@ -63,27 +70,22 @@ _manager.set_emit(Tauri.dispatch)
 
 async def session_launch(payload: Any) -> dict[str, Any]:
     session_id = _session_id(payload)
-    session_dir = _session_dir(payload)
-    headless = _bool(payload, "headless", False)
-    fresh = _bool(payload, "fresh", False)
-    start_url = _start_url(payload)
     info = await _manager.launch(
         session_id=session_id,
-        session_dir=session_dir,
-        headless=headless,
-        fresh=fresh,
-        start_url=start_url,
+        session_dir=_session_dir(payload),
+        headless=_bool(payload, "headless", False),
+        fresh=_bool(payload, "fresh", False),
+        start_url=_start_url(payload),
     )
     return _run_to_dict(info)
 
 
 async def session_stop(payload: Any) -> dict[str, Any]:
     session_id = _session_id(payload)
-    session_dir = _session_dir(payload)
     run_id = _run_id(payload)
     info = await _manager.stop(
         session_id=session_id,
-        session_dir=session_dir,
+        session_dir=_session_dir(payload),
         run_id=run_id,
     )
     if info is None:
@@ -101,15 +103,34 @@ async def session_stop(payload: Any) -> dict[str, Any]:
 
 async def session_check(payload: Any) -> dict[str, Any]:
     session_id = _session_id(payload)
-    session_dir = _session_dir(payload)
-    check_url = _check_url(payload)
     return await _manager.check(
         session_id=session_id,
-        session_dir=session_dir,
-        check_url=check_url,
+        session_dir=_session_dir(payload),
+        check_url=_check_url(payload),
+        platform=_platform(payload),
+    )
+
+
+async def session_status(payload: Any) -> dict[str, Any]:
+    session_id = None
+    if isinstance(payload, dict) and payload.get("session_id"):
+        session_id = str(payload["session_id"])
+    result = await _manager.status(session_id=session_id)
+    if isinstance(result, list):
+        return {"ok": True, "instances": [_run_to_dict(info) for info in result]}
+    return _run_to_dict(result)
+
+
+async def session_sync(payload: Any) -> dict[str, Any]:
+    session_id = _session_id(payload)
+    return await _manager.sync_system_profile(
+        session_id=session_id,
+        session_dir=_session_dir(payload),
     )
 
 
 Daemon.route("session.launch", session_launch)
 Daemon.route("session.stop", session_stop)
 Daemon.route("session.check", session_check)
+Daemon.route("session.sync", session_sync)
+Daemon.route("session.status", session_status)

@@ -14,14 +14,21 @@ pub(super) struct CreateSessionReq {
 }
 
 #[derive(Debug, Deserialize)]
+pub(super) struct CreateDefaultSessionReq {
+    pub platform: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub(super) struct SessionIdReq {
     pub session_id: String,
+    pub platform: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub(super) struct LaunchSessionReq {
     pub session_id: String,
     pub fresh: Option<bool>,
+    pub platform: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,4 +58,34 @@ pub struct SessionCheckResult {
     pub logged_in: bool,
     pub url: String,
     pub cookie_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionLiveRun {
+    pub session_id: String,
+    pub run_id: String,
+    pub running: bool,
+    pub headless: bool,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionStatusResult {
+    pub sessions: Vec<SessionInfo>,
+    pub instances: Vec<SessionLiveRun>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionSyncResult {
+    pub session: SessionInfo,
+    pub ok: bool,
+    pub files_copied: u32,
+    pub cookie_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionStopResult {
+    pub session: SessionInfo,
+    pub run_id: String,
+    pub running: bool,
 }

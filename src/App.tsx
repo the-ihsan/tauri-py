@@ -16,7 +16,7 @@ function App() {
     async function bootstrap() {
       try {
         await waitForSidecar();
-        setCheckingMessage("Verifying Chromium is installed…");
+        setCheckingMessage("Verifying Google Chrome is installed…");
         const result = await BrowserApi.installStatus();
         if (!result.ok) {
           setPhase("setup");

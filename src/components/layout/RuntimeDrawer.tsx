@@ -22,6 +22,10 @@ import {
 } from "@/components/ui/tabs";
 import { useRunLog, useRuns } from "@/hooks/useRuns";
 import { BrowserApi, type BrowserEvent, type BrowserRun } from "@/lib/browser";
+import {
+  applyBrowserEvent,
+  normalizeBrowserInstances,
+} from "@/lib/browserState";
 import { LogApi, type LogEvent, type LogLine } from "@/lib/log";
 import { isActiveRun, isResumableRun, type RunInfo } from "@/lib/runs";
 import { getTaskType, taskLabel } from "@/lib/tasks";
@@ -83,28 +87,6 @@ function formatTime(ts: number) {
   return new Date(ts * 1000).toLocaleTimeString();
 }
 
-function upsertInstance(instances: BrowserRun[], next: BrowserRun) {
-  if (!next.running) {
-    return instances.filter((i) => i.run_id !== next.run_id);
-  }
-  const rest = instances.filter((i) => i.run_id !== next.run_id);
-  return [...rest, next];
-}
-
-function normalizeInstances(result: unknown): BrowserRun[] {
-  if (
-    typeof result === "object" &&
-    result !== null &&
-    "instances" in result &&
-    Array.isArray((result as { instances: unknown }).instances)
-  ) {
-    return (result as { instances: BrowserRun[] }).instances.filter(
-      (i) => i.running,
-    );
-  }
-  return [];
-}
-
 function InstanceRow({
   instance,
   source,
@@ -162,7 +144,7 @@ function BrowserRuntimePanel({
   const syncInstances = useCallback(async () => {
     try {
       const result = await BrowserApi.status();
-      setRegistryInstances(normalizeInstances(result));
+      setRegistryInstances(normalizeBrowserInstances(result));
     } catch {
       // ignore transient errors
     }
@@ -203,15 +185,7 @@ function BrowserRuntimePanel({
 
   useEffect(() => {
     const onBrowser = (event: BrowserEvent) => {
-      if (event.route === "browser.closed") {
-        setRegistryInstances((prev) =>
-          prev.filter((i) => i.run_id !== event.payload.run_id),
-        );
-        return;
-      }
-      if (event.route === "browser.updated") {
-        setRegistryInstances((prev) => upsertInstance(prev, event.payload));
-      }
+      setRegistryInstances((prev) => applyBrowserEvent(prev, event));
     };
 
     void BrowserApi.subscribe(onBrowser);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { Cookie, Play, ShieldCheck, Trash2, Users } from "lucide-react";
+import { Cookie, Play, RefreshCw, ShieldCheck, Square, Trash2, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { SessionCookiesDialog } from "@/modules/sessions/components/SessionCookiesDialog";
 import { useSessions } from "@/modules/sessions/hooks";
 import { findPlatform, type PlatformSlug } from "@/modules/sessions/platforms";
-import type { SessionInfo } from "@/modules/sessions/types";
+import { DEFAULT_CHROME_SESSION_ID, isSessionBrowserOpen, sessionBrowserStatus, usesSystemProfile, type SessionInfo } from "@/modules/sessions/types";
 
 function statusClass(status: string) {
   switch (status) {
@@ -28,13 +28,17 @@ export function PlatformSessionsPage() {
   const platform = platformSlug ? findPlatform(platformSlug) : undefined;
   const {
     items: sessions,
+    liveRuns,
     pending,
     pendingSessionId,
     error,
     lastCheck,
     createSession,
+    addDefaultChrome,
     launchSession,
+    stopSession,
     checkSession,
+    syncSession,
     deleteSession,
     clearError,
   } = useSessions(platformSlug);
@@ -46,6 +50,9 @@ export function PlatformSessionsPage() {
   const busy = pending !== null;
   const selected =
     sessions.find((session) => session.id === selectedId) ?? null;
+  const hasDefaultChrome = sessions.some(
+    (session) => session.id === DEFAULT_CHROME_SESSION_ID,
+  );
 
   if (!platformSlug || !platform) {
     return (
@@ -98,6 +105,8 @@ export function PlatformSessionsPage() {
                 sessions.map((session) => {
                   const check = lastCheck[session.id];
                   const active = selectedId === session.id;
+                  const browserOpen = isSessionBrowserOpen(session, liveRuns);
+                  const browserStatus = sessionBrowserStatus(session, liveRuns);
                   return (
                     <div
                       key={session.id}
@@ -113,11 +122,15 @@ export function PlatformSessionsPage() {
                         <div className="min-w-0">
                           <p className="truncate font-medium">{session.name}</p>
                           <p className="truncate text-xs text-muted-foreground">
-                            {session.has_storage
-                              ? "Cookies saved"
-                              : "No cookies yet"}
-                            {session.active_run_count > 0
-                              ? ` · ${session.active_run_count} active run${session.active_run_count === 1 ? "" : "s"}`
+                            {usesSystemProfile(session)
+                              ? session.has_storage
+                                ? "Synced from system Chrome"
+                                : "Not synced from system Chrome yet"
+                              : session.has_storage
+                                ? "Cookies saved"
+                                : "No cookies yet"}
+                            {browserOpen
+                              ? " · browser open"
                               : ""}
                             {check
                               ? ` · ${check.logged_in ? "logged in" : "not logged in"}`
@@ -125,38 +138,71 @@ export function PlatformSessionsPage() {
                           </p>
                         </div>
                         <span
-                          className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium capitalize ${statusClass(session.status)}`}
+                          className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium capitalize ${statusClass(browserStatus)}`}
                         >
-                          {session.status}
+                          {browserStatus}
                         </span>
                       </button>
 
                       <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          disabled={
-                            busy ||
-                            session.active_run_count > 0 ||
-                            isPending(session.id)
-                          }
-                          onClick={() => void launchSession(session.id, false)}
-                        >
-                          {isPending(session.id) && pending === "launch" ? (
-                            <Spinner className="size-3.5" />
-                          ) : (
-                            <Play className="size-3.5" />
-                          )}
-                          Launch
-                        </Button>
+                        {browserOpen ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={busy || isPending(session.id)}
+                            onClick={() => void stopSession(session.id)}
+                          >
+                            {isPending(session.id) && pending === "stop" ? (
+                              <Spinner className="size-3.5" />
+                            ) : (
+                              <Square className="size-3.5" />
+                            )}
+                            Close browser
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={busy || isPending(session.id)}
+                            onClick={() => void launchSession(session.id, false)}
+                          >
+                            {isPending(session.id) && pending === "launch" ? (
+                              <Spinner className="size-3.5" />
+                            ) : (
+                              <Play className="size-3.5" />
+                            )}
+                            Launch
+                          </Button>
+                        )}
+                        {usesSystemProfile(session) ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              busy ||
+                              browserOpen ||
+                              isPending(session.id)
+                            }
+                            onClick={() => void syncSession(session.id)}
+                          >
+                            {isPending(session.id) && pending === "sync" ? (
+                              <Spinner className="size-3.5" />
+                            ) : (
+                              <RefreshCw className="size-3.5" />
+                            )}
+                            Sync
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
                           size="sm"
                           variant="outline"
                           disabled={
                             busy ||
-                            session.active_run_count > 0 ||
+                            browserOpen ||
                             isPending(session.id)
                           }
                           onClick={() => void checkSession(session.id)}
@@ -182,7 +228,7 @@ export function PlatformSessionsPage() {
                           type="button"
                           size="sm"
                           variant="destructive"
-                          disabled={busy || isPending(session.id)}
+                          disabled={busy || browserOpen || isPending(session.id)}
                           onClick={async () => {
                             const ok = await deleteSession(session.id);
                             if (ok && selectedId === session.id) {
@@ -246,6 +292,33 @@ export function PlatformSessionsPage() {
                 "Open fresh browser"
               )}
             </Button>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Default Chrome</h3>
+              <p className="text-sm text-muted-foreground">
+                Copies cookies from your installed Chrome into a debuggable
+                profile. Close Chrome before adding or syncing.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || hasDefaultChrome}
+                onClick={() => void addDefaultChrome()}
+              >
+                {pending === "create_default" ? (
+                  <>
+                    <Spinner className="size-4" />
+                    Adding Default Chrome…
+                  </>
+                ) : hasDefaultChrome ? (
+                  "Default Chrome added"
+                ) : (
+                  "Add Default Chrome"
+                )}
+              </Button>
+            </div>
           </div>
 
           {selected && (

@@ -20,4 +20,8 @@ pub(super) fn register(app: &mut BuilderApp) {
             facade.push_ui_route("session.closed", payload);
         }
     });
+
+    app.on_event("session.updated", |facade, payload: Value| async move {
+        facade.push_ui_route("session.updated", payload);
+    });
 }

@@ -4,33 +4,13 @@ import { Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { BrowserApi, type BrowserEvent, type BrowserRun } from "@/lib/browser";
+import {
+  applyBrowserEvent,
+  normalizeBrowserInstances,
+} from "@/lib/browserState";
 
 function shortId(runId: string) {
   return runId.slice(0, 8);
-}
-
-function isBrowserRun(value: unknown): value is BrowserRun {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "run_id" in value &&
-    typeof (value as BrowserRun).run_id === "string"
-  );
-}
-
-function normalizeInstances(result: unknown): BrowserRun[] {
-  if (
-    typeof result === "object" &&
-    result !== null &&
-    "instances" in result &&
-    Array.isArray((result as { instances: unknown }).instances)
-  ) {
-    return (result as { instances: BrowserRun[] }).instances;
-  }
-  if (isBrowserRun(result)) {
-    return result.running ? [result] : [];
-  }
-  return [];
 }
 
 export function BrowserPanel() {
@@ -42,44 +22,24 @@ export function BrowserPanel() {
   const syncStatus = useCallback(async () => {
     try {
       const result = await BrowserApi.status();
-      setInstances(normalizeInstances(result));
+      setInstances(normalizeBrowserInstances(result));
     } catch {
       // ignore transient poll errors
     }
   }, []);
 
   useEffect(() => {
-    syncStatus();
+    void syncStatus();
   }, [syncStatus]);
 
   useEffect(() => {
     const onEvent = (event: BrowserEvent) => {
-      if (event.route === "browser.closed") {
-        setInstances((prev) => prev.filter((i) => i.run_id !== event.payload.run_id));
-        return;
-      }
-      if (event.route === "browser.updated") {
-        const next = event.payload;
-        if (!next.running) {
-          setInstances((prev) => prev.filter((i) => i.run_id !== next.run_id));
-          return;
-        }
-        setInstances((prev) => [
-          ...prev.filter((i) => i.run_id !== next.run_id),
-          next,
-        ]);
-      }
+      setInstances((prev) => applyBrowserEvent(prev, event));
     };
 
     void BrowserApi.subscribe(onEvent);
     return () => BrowserApi.unsubscribe(onEvent);
   }, []);
-
-  useEffect(() => {
-    if (instances.length === 0) return;
-    const interval = window.setInterval(syncStatus, 2000);
-    return () => window.clearInterval(interval);
-  }, [instances.length, syncStatus]);
 
   const busy = pending !== null;
   const runningCount = instances.filter((i) => i.running).length;
@@ -129,7 +89,7 @@ export function BrowserPanel() {
         <div className="flex flex-col gap-1">
           <h2 className="text-lg font-semibold tracking-tight">Browser</h2>
           <p className="text-sm text-muted-foreground">
-            Launch Playwright Chromium instances for automation. Each instance gets a unique run id.
+            Launch Google Chrome instances for automation. Each instance gets a unique run id.
           </p>
         </div>
       </div>

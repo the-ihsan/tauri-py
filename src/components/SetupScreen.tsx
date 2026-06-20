@@ -31,7 +31,7 @@ export function SetupScreen({ onReady }: SetupScreenProps) {
 
   const handleInstall = async () => {
     setInstalling(true);
-    setProgress({ message: "Preparing Chromium install…", percent: 0 });
+    setProgress({ message: "Preparing Google Chrome install…", percent: 0 });
     setError(null);
     try {
       const result = await BrowserApi.installRun();
@@ -39,9 +39,9 @@ export function SetupScreen({ onReady }: SetupScreenProps) {
         onReady();
         return;
       }
-      setError(result.error ?? "Chromium install failed");
+      setError(result.error ?? "Google Chrome install failed");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Chromium install failed");
+      setError(err instanceof Error ? err.message : "Google Chrome install failed");
     } finally {
       setInstalling(false);
       setProgress(null);
@@ -53,10 +53,11 @@ export function SetupScreen({ onReady }: SetupScreenProps) {
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-6 p-8">
       <div className="flex max-w-md flex-col items-center gap-3 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Set up Chromium</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Set up Google Chrome</h1>
         <p className="text-sm text-muted-foreground">
-          Playwright needs a local Chromium browser before you can launch automation
-          sessions. This one-time download is tailored to your operating system.
+          This app controls your installed Google Chrome browser for automation
+          sessions. Install Chrome once, then reuse your real browser profile for
+          sign-in.
         </p>
       </div>
 
@@ -64,10 +65,10 @@ export function SetupScreen({ onReady }: SetupScreenProps) {
         {installing ? (
           <>
             <Spinner className="size-4" />
-            Installing Chromium…
+            Installing Google Chrome…
           </>
         ) : (
-          "Install Chromium"
+          "Install Google Chrome"
         )}
       </Button>
 

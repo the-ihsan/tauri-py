@@ -14,4 +14,8 @@ CHROMIUM_LAUNCH_ARGS = [
 
 
 def chromium_launch_kwargs(*, headless: bool = True) -> dict[str, Any]:
-    return {"headless": headless, "args": CHROMIUM_LAUNCH_ARGS}
+    return {
+        "headless": headless,
+        "args": CHROMIUM_LAUNCH_ARGS,
+        "ignore_default_args": ["--enable-automation"],
+    }

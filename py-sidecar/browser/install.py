@@ -1,29 +1,30 @@
-"""Ensure Playwright browser binaries are installed on the client machine."""
+"""Detect and install Google Chrome for browser automation."""
 
 from __future__ import annotations
 
 import asyncio
 import os
-import re
 import subprocess
 import sys
-import threading
+import tempfile
+import time
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypedDict
 
+from .chrome_cdp import chrome_installed as _chrome_installed_sync
+from .chrome_cdp import find_chrome_executable
+
 _INSTALL_LOCK = asyncio.Lock()
-_CHECK_LOCK = threading.Lock()
-_APP_BROWSERS_FLAG = "APP_PLAYWRIGHT_BROWSERS"
-_PERCENT_RE = re.compile(r"(\d+)%\s+of\b")
-# Full Chromium bundles are named chromium-<revision>, not chromium_headless_shell-*.
-_CHROMIUM_BUNDLE_RE = re.compile(r"^chromium-\d")
-_CHROMIUM_EXECUTABLES = (
-    Path("chrome-linux64/chrome"),
-    Path("chrome-linux/chrome"),
-    Path("chrome-win/chrome.exe"),
-    Path("chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
+
+_CHROME_INSTALLER_URL_WIN = (
+    "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
 )
+_CHROME_DOWNLOAD_URL_MAC = (
+    "https://www.google.com/chrome/?brand=GGRF&platform=mac"
+)
+_CHROME_DOWNLOAD_URL_LINUX = "https://www.google.com/chrome/"
 
 
 class InstallProgress(TypedDict):
@@ -32,189 +33,6 @@ class InstallProgress(TypedDict):
 
 
 ProgressCallback = Callable[[InstallProgress], None]
-
-def _default_browsers_path() -> Path:
-    if sys.platform == "win32":
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if local_app_data:
-            return Path(local_app_data) / "ms-playwright"
-        return Path.home() / "AppData" / "Local" / "ms-playwright"
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Caches" / "ms-playwright"
-    return Path.home() / ".cache" / "ms-playwright"
-
-
-def _app_browsers_path() -> Path | None:
-    raw = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
-    if not raw:
-        return None
-    if os.environ.get(_APP_BROWSERS_FLAG) != "1":
-        return None
-    return Path(raw)
-
-
-def _candidate_browsers_paths() -> list[Path]:
-    paths: list[Path] = []
-    app_path = _app_browsers_path()
-    if app_path is not None:
-        paths.append(app_path)
-
-    raw = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
-    if raw and app_path is None:
-        candidate = Path(raw)
-        if candidate.exists() or candidate.parent.exists():
-            paths.append(candidate)
-
-    default = _default_browsers_path()
-    if default not in paths:
-        paths.append(default)
-    return paths
-
-
-def _install_browsers_path() -> Path:
-    return _app_browsers_path() or _default_browsers_path()
-
-
-def _iter_chromium_bundles(browsers_path: Path):
-    if not browsers_path.is_dir():
-        return
-    for bundle in browsers_path.iterdir():
-        if bundle.is_dir() and _CHROMIUM_BUNDLE_RE.match(bundle.name):
-            yield bundle
-
-
-def _has_chromium_bundle(browsers_path: Path) -> bool:
-    return any(_iter_chromium_bundles(browsers_path))
-
-
-def _chromium_executable_on_disk(browsers_path: Path) -> bool:
-    for bundle in _iter_chromium_bundles(browsers_path):
-        for relative in _CHROMIUM_EXECUTABLES:
-            if (bundle / relative).is_file():
-                return True
-    return False
-
-
-def _chromium_installed_at(browsers_path: Path) -> bool:
-    browsers_path.mkdir(parents=True, exist_ok=True)
-    if _chromium_executable_on_disk(browsers_path):
-        return True
-    # No full Chromium bundle here — avoid an expensive Playwright probe that
-    # still resolves to a non-existent path under this directory.
-    if not _has_chromium_bundle(browsers_path):
-        return False
-
-    with _CHECK_LOCK:
-        prior = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_path)
-        try:
-            from playwright.sync_api import sync_playwright
-
-            with sync_playwright() as playwright:
-                executable = Path(playwright.chromium.executable_path)
-                return executable.is_file()
-        except Exception:
-            return False
-        finally:
-            if prior is None:
-                os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
-            else:
-                os.environ["PLAYWRIGHT_BROWSERS_PATH"] = prior
-
-
-def _chromium_installed_sync() -> bool:
-    """Return True only when Chromium exists at the path Playwright will use."""
-    app_path = _app_browsers_path()
-    if app_path is not None:
-        # Sidecar sets APP_PLAYWRIGHT_BROWSERS=1 and PLAYWRIGHT_BROWSERS_PATH to
-        # the app data dir. A copy in ~/.cache/ms-playwright must not count.
-        return _chromium_installed_at(app_path)
-    return any(_chromium_installed_at(path) for path in _candidate_browsers_paths())
-
-
-def _active_browsers_path() -> Path:
-    app_path = _app_browsers_path()
-    if app_path is not None:
-        return app_path
-    for path in _candidate_browsers_paths():
-        if _chromium_installed_at(path):
-            return path
-    return _install_browsers_path()
-
-
-def _playwright_env_for_path(browsers_path: Path) -> dict[str, str]:
-    from playwright._impl._driver import get_driver_env
-
-    env = get_driver_env()
-    browsers_path.mkdir(parents=True, exist_ok=True)
-    env["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_path)
-    return env
-
-
-def _playwright_env() -> dict[str, str]:
-    return _playwright_env_for_path(_active_browsers_path())
-
-
-def _install_playwright_env() -> dict[str, str]:
-    return _playwright_env_for_path(_install_browsers_path())
-
-
-class _InstallProgressTracker:
-    """Turn Playwright install stdout into user-facing progress with overall percent."""
-
-    def __init__(self) -> None:
-        self._labels: list[str] = []
-        self._current_index = -1
-        self._current_percent = 0
-        self._completed: set[int] = set()
-
-    def _overall_percent(self) -> int | None:
-        if self._current_index < 0:
-            return None
-        total = max(self._current_index + 1, len(self._completed))
-        done = len(self._completed)
-        partial = 0.0
-        if self._current_index not in self._completed:
-            partial = self._current_percent / 100
-        return min(99, int((done + partial) / total * 100))
-
-    def _current_label(self) -> str:
-        if 0 <= self._current_index < len(self._labels):
-            return self._labels[self._current_index]
-        return "Downloading browser components…"
-
-    def update(self, line: str) -> InstallProgress:
-        if line.startswith("Downloading "):
-            self._current_index += 1
-            label = line.removesuffix("…").strip()
-            self._labels.append(label)
-            self._current_percent = 0
-            return {
-                "message": label,
-                "percent": self._overall_percent(),
-            }
-
-        match = _PERCENT_RE.search(line)
-        if match is not None and self._current_index >= 0:
-            self._current_percent = int(match.group(1))
-            return {
-                "message": self._current_label(),
-                "percent": self._overall_percent(),
-            }
-
-        if " downloaded to " in line:
-            self._completed.add(self._current_index)
-            self._current_percent = 100
-            name = line.split(" downloaded to ", 1)[0].strip()
-            return {
-                "message": f"{name} downloaded",
-                "percent": self._overall_percent(),
-            }
-
-        return {
-            "message": line,
-            "percent": self._overall_percent(),
-        }
 
 
 def _emit_progress(
@@ -228,82 +46,171 @@ def _emit_progress(
     on_progress({"message": message, "percent": percent})
 
 
-def _run_playwright_cli(
-    *args: str,
-    on_progress: ProgressCallback | None = None,
-) -> subprocess.CompletedProcess[str]:
-    from playwright._impl._driver import compute_driver_executable
+def _download_file(
+    url: str,
+    dest: Path,
+    on_progress: ProgressCallback | None,
+    *,
+    label: str,
+    percent_start: int,
+    percent_end: int,
+) -> None:
+    with urllib.request.urlopen(url, timeout=120) as response:
+        total = int(response.headers.get("Content-Length", 0))
+        downloaded = 0
+        with dest.open("wb") as handle:
+            while True:
+                chunk = response.read(1024 * 256)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                downloaded += len(chunk)
+                if on_progress is not None and total > 0:
+                    ratio = downloaded / total
+                    percent = percent_start + int(
+                        ratio * max(percent_end - percent_start, 1)
+                    )
+                    _emit_progress(on_progress, label, percent=min(percent, percent_end))
 
-    node, cli = compute_driver_executable()
-    env = _install_playwright_env()
-    if on_progress is None:
-        return subprocess.run(
-            [node, cli, *args],
+
+def _wait_for_chrome_install(
+    on_progress: ProgressCallback | None,
+    *,
+    timeout: float = 180.0,
+) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _chrome_installed_sync():
+            return
+        _emit_progress(
+            on_progress,
+            "Waiting for Google Chrome installation to finish…",
+            percent=95,
+        )
+        time.sleep(2.0)
+    raise RuntimeError(
+        "Google Chrome install did not complete in time. Finish the installer and retry."
+    )
+
+
+def _install_chrome_windows(on_progress: ProgressCallback | None = None) -> None:
+    _emit_progress(
+        on_progress,
+        "Downloading Google Chrome installer…",
+        percent=0,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        installer = Path(tmp) / "chrome_installer.exe"
+        _download_file(
+            _CHROME_INSTALLER_URL_WIN,
+            installer,
+            on_progress,
+            label="Downloading Google Chrome installer…",
+            percent_start=0,
+            percent_end=55,
+        )
+        _emit_progress(on_progress, "Installing Google Chrome…", percent=60)
+        result = subprocess.run(
+            [str(installer), "/silent", "/install"],
             capture_output=True,
             text=True,
+            timeout=300,
             check=False,
-            env=env,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(detail or "Google Chrome installer failed")
+
+    _emit_progress(on_progress, "Verifying Google Chrome installation…", percent=90)
+    _wait_for_chrome_install(on_progress)
+
+
+def _install_chrome_macos(on_progress: ProgressCallback | None = None) -> None:
+    _emit_progress(
+        on_progress,
+        "Opening the Google Chrome download page…",
+        percent=10,
+    )
+    subprocess.run(["open", _CHROME_DOWNLOAD_URL_MAC], check=False)
+    _wait_for_chrome_install(on_progress, timeout=300.0)
+
+
+def _install_chrome_linux(on_progress: ProgressCallback | None = None) -> None:
+    opened = False
+    for command in (
+        ["xdg-open", _CHROME_DOWNLOAD_URL_LINUX],
+        ["gio", "open", _CHROME_DOWNLOAD_URL_LINUX],
+        ["wslview", _CHROME_DOWNLOAD_URL_LINUX],
+    ):
+        try:
+            subprocess.run(command, check=False, timeout=10)
+            opened = True
+            break
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+
+    if not opened:
+        raise RuntimeError(
+            "Could not open the Chrome download page automatically. "
+            f"Install Chrome from {_CHROME_DOWNLOAD_URL_LINUX}"
         )
 
-    proc = subprocess.Popen(
-        [node, cli, *args],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        env=env,
+    _emit_progress(
+        on_progress,
+        "Complete the Google Chrome installer, then wait…",
+        percent=20,
     )
-    output_lines: list[str] = []
-    tracker = _InstallProgressTracker()
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        stripped = line.rstrip()
-        if stripped:
-            output_lines.append(stripped)
-            if on_progress is not None:
-                on_progress(tracker.update(stripped))
-    returncode = proc.wait()
-    combined = "\n".join(output_lines)
-    return subprocess.CompletedProcess(
-        args=[node, cli, *args],
-        returncode=returncode,
-        stdout=combined,
-        stderr="",
-    )
+    _wait_for_chrome_install(on_progress, timeout=300.0)
 
 
-async def chromium_installed() -> bool:
+def _install_chrome_sync(on_progress: ProgressCallback | None = None) -> None:
+    if sys.platform == "win32":
+        _install_chrome_windows(on_progress)
+        return
+    if sys.platform == "darwin":
+        _install_chrome_macos(on_progress)
+        return
+    _install_chrome_linux(on_progress)
+
+
+async def chrome_installed() -> bool:
     try:
-        return await asyncio.to_thread(_chromium_installed_sync)
+        return await asyncio.to_thread(_chrome_installed_sync)
     except Exception:
         return False
 
 
-def _install_chromium_sync(on_progress: ProgressCallback | None = None) -> None:
-    _emit_progress(
-        on_progress,
-        "Starting Chromium download via Playwright…",
-        percent=0,
+async def install_chrome(on_progress: ProgressCallback | None = None) -> None:
+    """Install Google Chrome; raises on failure."""
+    async with _INSTALL_LOCK:
+        if await chrome_installed():
+            _emit_progress(on_progress, "Google Chrome is ready.", percent=100)
+            return
+
+        await asyncio.to_thread(_install_chrome_sync, on_progress)
+        if not await chrome_installed():
+            raise RuntimeError(
+                "Google Chrome install finished but Chrome could not be found"
+            )
+        _emit_progress(on_progress, "Google Chrome is ready.", percent=100)
+
+
+async def ensure_chrome() -> None:
+    """Ensure Google Chrome is installed before launching a browser."""
+    if await chrome_installed():
+        return
+    await install_chrome()
+
+
+def chrome_missing_error() -> str:
+    return (
+        "Google Chrome is not installed. Install Chrome from the setup screen "
+        "and try again."
     )
 
-    result = _run_playwright_cli("install", "chromium", on_progress=on_progress)
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip()
-        raise RuntimeError(detail or "playwright install chromium failed")
 
-    _emit_progress(on_progress, "Verifying Chromium installation…", percent=99)
-
-
-async def install_chromium(on_progress: ProgressCallback | None = None) -> None:
-    """Download Chromium via Playwright; raises on failure."""
-    async with _INSTALL_LOCK:
-        await asyncio.to_thread(_install_chromium_sync, on_progress)
-        if not await chromium_installed():
-            raise RuntimeError("Chromium install finished but Playwright cannot find it")
-        _emit_progress(on_progress, "Chromium is ready.", percent=100)
-
-async def ensure_playwright_browsers() -> None:
-    """Install Chromium on first use if Playwright does not already have it."""
-    if await chromium_installed():
-        return
-    await install_chromium()
+def require_chrome_executable() -> Path:
+    try:
+        return find_chrome_executable()
+    except FileNotFoundError as exc:
+        raise RuntimeError(chrome_missing_error()) from exc

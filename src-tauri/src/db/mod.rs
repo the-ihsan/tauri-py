@@ -15,9 +15,10 @@ pub use runs::{
     upsert_item,
 };
 pub use sessions::{
-    clear_active_runs, create_session, delete_session, get_session, list_sessions, mark_checked,
-    mark_idle, mark_running, platform_check_url, reset_running_on_startup, session_dir,
-    storage_state_path,
+    clear_active_runs, create_default_chrome_session, create_session, delete_session,
+    get_session, list_sessions, mark_checked, mark_idle, mark_running, platform_check_url,
+    reset_running_on_startup, session_dir, storage_state_path,
+    DEFAULT_CHROME_SESSION_ID,
 };
 
 async fn connect_pool(db_path: &Path) -> Result<SqlitePool, String> {

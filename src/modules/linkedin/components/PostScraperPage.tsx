@@ -126,7 +126,7 @@ export function PostScraperPage() {
   const [postCount, setPostCount] = useState("");
   const [startFrom, setStartFrom] = useState("1");
   const [matcher, setMatcher] = useState("");
-  const [headless, setHeadless] = useState(true);
+  const [headless, setHeadless] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RunInfo | null>(null);

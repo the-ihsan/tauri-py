@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from typing import Any
 
-from browser.install import chromium_installed, install_chromium
+from browser.install import chrome_installed, install_chrome
 from browser.instance import BrowserRunInfo
 from browser.registry import get_registry
 from runtime import Daemon, Tauri
@@ -90,7 +90,7 @@ async def browser_control(payload: Any) -> dict[str, Any]:
 
 async def browser_install_status(_payload: Any) -> dict[str, Any]:
     try:
-        installed = await chromium_installed()
+        installed = await chrome_installed()
     except Exception:
         installed = False
     return {"ok": True, "installed": installed}
@@ -101,20 +101,20 @@ async def browser_install_run(_payload: Any) -> dict[str, Any]:
         Tauri.dispatch("browser.install.progress", progress)
 
     try:
-        await install_chromium(on_progress=on_progress)
+        await install_chrome(on_progress=on_progress)
     except subprocess.CalledProcessError as exc:
         return {
             "ok": False,
-            "installed": await chromium_installed(),
-            "error": f"playwright install failed (exit {exc.returncode})",
+            "installed": await chrome_installed(),
+            "error": f"Google Chrome install failed (exit {exc.returncode})",
         }
     except Exception as exc:
         return {
             "ok": False,
-            "installed": await chromium_installed(),
+            "installed": await chrome_installed(),
             "error": str(exc),
         }
-    return {"ok": True, "installed": await chromium_installed()}
+    return {"ok": True, "installed": await chrome_installed()}
 
 
 Daemon.route("browser.launch", browser_launch)

@@ -5,7 +5,6 @@ pub struct Config {
     pub dev: bool,
     pub sidecar_bundle: PathBuf,
     pub project_root: PathBuf,
-    pub browsers_dir: PathBuf,
     pub db_path: PathBuf,
     pub sessions_dir: PathBuf,
 }
@@ -35,7 +34,6 @@ impl Config {
             dev: cfg!(debug_assertions),
             sidecar_bundle,
             project_root,
-            browsers_dir: data_dir.join("playwright-browsers"),
             db_path: data_dir.join("tauri-py.db"),
             sessions_dir: data_dir.join("sessions"),
         }

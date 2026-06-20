@@ -1,21 +1,34 @@
-"""Single Playwright browser instance with unique run id and run control."""
+"""Single Google Chrome browser instance with unique run id and run control."""
 
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright
 
+from .chrome_cdp import ChromeCdpSession, launch_chrome_cdp, shutdown_chrome_cdp
 from .control import RunControl
-from .install import ensure_playwright_browsers
-from .launch import chromium_launch_kwargs
-from .pages import close_page, open_page
+from .install import ensure_chrome
+from .pages import close_page
 
 EmitFn = Callable[[str, dict[str, Any]], None]
+
+
+def _browser_profiles_root() -> Path:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        return Path(local_app_data) / "tauri-py" / "browser-profiles"
+    return Path.home() / ".tauri-py" / "browser-profiles"
+
+
+def browser_run_profile_path(run_id: str) -> Path:
+    return _browser_profiles_root() / run_id
 
 
 @dataclass(frozen=True)
@@ -29,7 +42,7 @@ class BrowserRunInfo:
 
 
 class BrowserInstance:
-    """Owns one Playwright browser lifecycle keyed by a unique run id."""
+    """Owns one Chrome lifecycle keyed by a unique run id."""
 
     def __init__(
         self,
@@ -42,25 +55,28 @@ class BrowserInstance:
         self._emit = emit
         self._stack = AsyncExitStack()
         self._playwright: Playwright | None = None
-        self._launch_kwargs = chromium_launch_kwargs(headless=headless)
+        self._headless = headless
         self._crashed = False
         self._closing = False
         self._started = False
+        self._cdp: ChromeCdpSession | None = None
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
         self.page: Page | None = None
 
     @property
     def headless(self) -> bool:
-        return bool(self._launch_kwargs.get("headless", True))
+        return self._headless
 
     def _is_alive(self) -> bool:
-        if self.browser is None:
+        if self._cdp is None or self.browser is None:
             return False
         try:
             if not self.browser.is_connected():
                 return False
             if self.page is None or self.page.is_closed():
+                return False
+            if self._cdp.process.poll() is not None:
                 return False
             return True
         except Exception:
@@ -176,7 +192,7 @@ class BrowserInstance:
         if self.is_running:
             raise RuntimeError(f"browser '{self.run_id}' is already running")
 
-        await ensure_playwright_browsers()
+        await ensure_chrome()
         self._crashed = False
 
         from playwright.async_api import async_playwright
@@ -233,10 +249,17 @@ class BrowserInstance:
 
     async def _launch(self) -> None:
         assert self._playwright is not None
-        self.browser = await self._playwright.chromium.launch(**self._launch_kwargs)
+        profile_dir = browser_run_profile_path(self.run_id)
+        self._cdp = await launch_chrome_cdp(
+            self._playwright,
+            profile_dir=profile_dir,
+            headless=self._headless,
+            fresh=False,
+        )
+        self.browser = self._cdp.browser
+        self.context = self._cdp.context
+        self.page = self._cdp.page
         self.browser.on("disconnected", self._on_browser_disconnected)
-        self.context = await self.browser.new_context(locale="en-US")
-        self.page = await open_page(self.context)
         self.page.on("close", self._on_page_close)
         self.page.on("framenavigated", self._on_framenavigated)
 
@@ -252,12 +275,6 @@ class BrowserInstance:
                 pass
             await close_page(self.page)
             self.page = None
-        if self.context is not None:
-            try:
-                await self.context.close()
-            except Exception:
-                pass
-            self.context = None
         if self.browser is not None:
             try:
                 self.browser.remove_listener(
@@ -265,9 +282,7 @@ class BrowserInstance:
                 )
             except Exception:
                 pass
-            try:
-                if self.browser.is_connected():
-                    await self.browser.close()
-            except Exception:
-                pass
-            self.browser = None
+        self.context = None
+        self.browser = None
+        await shutdown_chrome_cdp(self._cdp)
+        self._cdp = None

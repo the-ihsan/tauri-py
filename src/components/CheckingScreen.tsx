@@ -5,7 +5,7 @@ type CheckingScreenProps = {
 };
 
 export function CheckingScreen({
-  message = "Verifying Chromium is installed…",
+  message = "Verifying Google Chrome is installed…",
 }: CheckingScreenProps) {
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-4 p-8">

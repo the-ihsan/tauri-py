@@ -35,11 +35,6 @@ pub fn spawn_daemon(config: &Config) -> Result<Child, String> {
 
     cmd.env("PYTHONIOENCODING", "utf-8");
     cmd.env("PYTHONUTF8", "1");
-    cmd.env(
-        "PLAYWRIGHT_BROWSERS_PATH",
-        &config.browsers_dir,
-    );
-    cmd.env("APP_PLAYWRIGHT_BROWSERS", "1");
 
     if config.dev {
         let py_sidecar = config.project_root.join("py-sidecar");

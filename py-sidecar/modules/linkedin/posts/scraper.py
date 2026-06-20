@@ -16,12 +16,17 @@ from typing import Any
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright
 
+from browser.chrome_cdp import (
+    ChromeCdpSession,
+    chrome_profile_path,
+    launch_chrome_cdp,
+    shutdown_chrome_cdp,
+)
 from browser.control import RunControl
 from browser.errors import is_recoverable_browser_error
-from browser.install import ensure_playwright_browsers
-from browser.launch import chromium_launch_kwargs
-from browser.pages import close_page, open_page
-from browser.sessions.storage import storage_path
+from browser.install import ensure_chrome
+from browser.pages import close_page
+from browser.sessions.storage import looks_logged_in_for_platform
 from modules.tasks.base import TaskContext
 
 from .extractors import EXPAND_TRUNCATED_POSTS_JS, EXTRACT_POSTS_JS, parse_posts
@@ -62,6 +67,7 @@ class LinkedInPostInputScraper:
         self.config = config
         self._stack = AsyncExitStack()
         self._playwright: Playwright | None = None
+        self._cdp: ChromeCdpSession | None = None
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
         self.page: Page | None = None
@@ -117,38 +123,29 @@ class LinkedInPostInputScraper:
         return self.control.stopped
 
     async def _launch(self) -> None:
-        await ensure_playwright_browsers()
+        await ensure_chrome()
         from playwright.async_api import async_playwright
 
         self._playwright = await self._stack.enter_async_context(async_playwright())
-        launch_kwargs = chromium_launch_kwargs(headless=self.config.headless)
-        self.browser = await self._playwright.chromium.launch(**launch_kwargs)
-
-        context_kwargs: dict[str, Any] = {"locale": "en-US"}
-        state_file = storage_path(self.config.session_dir)
-        if state_file.is_file():
-            context_kwargs["storage_state"] = str(state_file)
-
-        self.context = await self.browser.new_context(**context_kwargs)
-        self.page = await open_page(self.context)
+        profile_dir = chrome_profile_path(self.config.session_dir)
+        self._cdp = await launch_chrome_cdp(
+            self._playwright,
+            profile_dir=profile_dir,
+            headless=self.config.headless,
+            fresh=False,
+        )
+        self.browser = self._cdp.browser
+        self.context = self._cdp.context
+        self.page = self._cdp.page
 
     async def _shutdown(self) -> None:
         if self.page is not None:
             await close_page(self.page)
             self.page = None
-        if self.context is not None:
-            try:
-                await self.context.close()
-            except Exception:
-                pass
-            self.context = None
-        if self.browser is not None:
-            try:
-                if self.browser.is_connected():
-                    await self.browser.close()
-            except Exception:
-                pass
-            self.browser = None
+        self.context = None
+        self.browser = None
+        await shutdown_chrome_cdp(self._cdp)
+        self._cdp = None
 
     async def _recover_browser(self) -> None:
         await self._shutdown()
@@ -176,11 +173,13 @@ class LinkedInPostInputScraper:
 
     async def _looks_logged_in(self) -> bool:
         assert self.page is not None
-        final_url = self.page.url.lower()
-        if any(m in final_url for m in ("login", "signin", "checkpoint", "authwall")):
-            return False
         cookies = await self.context.cookies() if self.context else []
-        return len(cookies) > 0
+        return looks_logged_in_for_platform(
+            "linkedin",
+            check_url=self._activity_url,
+            final_url=self.page.url,
+            cookies=cookies,
+        )
 
     async def _expand_truncated_posts(self) -> None:
         assert self.page is not None
