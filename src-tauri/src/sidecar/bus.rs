@@ -5,6 +5,9 @@ use std::{
     thread,
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use crate::core::Config;
 
 
@@ -40,6 +43,9 @@ pub fn spawn_daemon(config: &Config) -> Result<Child, String> {
         let py_sidecar = config.project_root.join("py-sidecar");
         cmd.env("PYTHONPATH", py_sidecar);
     }
+
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
     cmd.spawn()
         .map_err(|e| format!("failed to spawn python daemon: {e}"))
