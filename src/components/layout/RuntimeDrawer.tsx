@@ -20,12 +20,9 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { useBrowserInstances } from "@/hooks/useBrowserInstances";
 import { useRunLog, useRuns } from "@/hooks/useRuns";
-import { BrowserApi, type BrowserEvent, type BrowserRun } from "@/lib/browser";
-import {
-  applyBrowserEvent,
-  normalizeBrowserInstances,
-} from "@/lib/browserState";
+import { type BrowserRun } from "@/lib/browser";
 import { LogApi, type LogEvent, type LogLine } from "@/lib/log";
 import { isActiveRun, isResumableRun, type RunInfo } from "@/lib/runs";
 import { getTaskType, taskLabel } from "@/lib/tasks";
@@ -48,24 +45,6 @@ function taskBrowserInstances(runs: RunInfo[]): BrowserRun[] {
     paused: run.status === "paused",
     crashed: false,
   }));
-}
-
-function mergeBrowserInstances(
-  registry: BrowserRun[],
-  tasks: BrowserRun[],
-): BrowserRun[] {
-  const byId = new Map<string, BrowserRun>();
-  for (const instance of registry) {
-    if (instance.running) {
-      byId.set(instance.run_id, instance);
-    }
-  }
-  for (const instance of tasks) {
-    if (!byId.has(instance.run_id)) {
-      byId.set(instance.run_id, instance);
-    }
-  }
-  return [...byId.values()];
 }
 
 const STATUS_TONE: Record<string, string> = {
@@ -130,25 +109,15 @@ function LogRow({ line }: { line: LogLine }) {
 
 function BrowserRuntimePanel({
   open,
-  taskInstances,
-  onCountChange,
+  instances,
+  registryInstances,
 }: {
   open: boolean;
-  taskInstances: BrowserRun[];
-  onCountChange?: (count: number) => void;
+  instances: BrowserRun[];
+  registryInstances: BrowserRun[];
 }) {
-  const [registryInstances, setRegistryInstances] = useState<BrowserRun[]>([]);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
-
-  const syncInstances = useCallback(async () => {
-    try {
-      const result = await BrowserApi.status();
-      setRegistryInstances(normalizeBrowserInstances(result));
-    } catch {
-      // ignore transient errors
-    }
-  }, []);
 
   const syncLogs = useCallback(async () => {
     try {
@@ -162,35 +131,21 @@ function BrowserRuntimePanel({
   }, []);
 
   useEffect(() => {
-    void syncInstances();
-  }, [syncInstances]);
-
-  useEffect(() => {
     if (!open) return;
     void syncLogs();
   }, [open, syncLogs]);
 
-  const instances = mergeBrowserInstances(registryInstances, taskInstances);
   const instanceSource = new Map<string, "task" | "registry">();
   for (const instance of registryInstances) {
     if (instance.running) {
       instanceSource.set(instance.run_id, "registry");
     }
   }
-  for (const instance of taskInstances) {
+  for (const instance of instances) {
     if (!instanceSource.has(instance.run_id)) {
       instanceSource.set(instance.run_id, "task");
     }
   }
-
-  useEffect(() => {
-    const onBrowser = (event: BrowserEvent) => {
-      setRegistryInstances((prev) => applyBrowserEvent(prev, event));
-    };
-
-    void BrowserApi.subscribe(onBrowser);
-    return () => BrowserApi.unsubscribe(onBrowser);
-  }, []);
 
   useEffect(() => {
     const onLog = (event: LogEvent) => {
@@ -206,10 +161,6 @@ function BrowserRuntimePanel({
     if (!open) return;
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs, open]);
-
-  useEffect(() => {
-    onCountChange?.(instances.length);
-  }, [instances.length, onCountChange]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -511,12 +462,12 @@ export function RuntimeDrawer() {
   const [open, setOpen] = useState(false);
   const [section, setSection] = useState<"browsers" | "tasks">("tasks");
   const { runs } = useRuns();
-  const [browserCount, setBrowserCount] = useState(0);
 
   const taskBrowsers = taskBrowserInstances(runs);
+  const { instances: browserInstances, registryInstances } =
+    useBrowserInstances(taskBrowsers);
   const activeTaskCount = runs.filter(isActiveRun).length;
-  const badgeCount =
-    browserCount + Math.max(0, activeTaskCount - taskBrowsers.length);
+  const badgeCount = browserInstances.length;
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -561,9 +512,9 @@ export function RuntimeDrawer() {
               <TabsTrigger value="browsers" className="flex-1">
                 <Globe className="size-3.5" />
                 Browsers
-                {browserCount > 0 && (
+                {browserInstances.length > 0 && (
                   <span className="text-xs text-muted-foreground">
-                    ({browserCount})
+                    ({browserInstances.length})
                   </span>
                 )}
               </TabsTrigger>
@@ -582,8 +533,8 @@ export function RuntimeDrawer() {
           <TabsContent value="browsers" className="min-h-0 flex-1" keepMounted>
             <BrowserRuntimePanel
               open={open}
-              taskInstances={taskBrowsers}
-              onCountChange={setBrowserCount}
+              instances={browserInstances}
+              registryInstances={registryInstances}
             />
           </TabsContent>
 
