@@ -353,7 +353,7 @@ def _spawn_chrome(args: list[str]) -> tuple[subprocess.Popen[Any], TextIO]:
 
 @dataclass
 class ChromeCdpSession:
-    browser: Browser
+    browser: Browser | None
     context: BrowserContext
     page: Page
     process: subprocess.Popen[Any]
@@ -434,7 +434,7 @@ async def shutdown_chrome_cdp(session: ChromeCdpSession | None) -> None:
     if browser is not None:
         try:
             if browser.is_connected():
-                await browser.disconnect()
+                await browser.close()
         except Exception:
             pass
 

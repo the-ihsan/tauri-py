@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING, Union
 
 from playwright.async_api import Page
+
+if TYPE_CHECKING:
+    from browser.page import ScrapedPage
+
+PageLike = Union[Page, "ScrapedPage"]
 
 # LinkedIn often scrolls a nested main/scaffold container, not window.
 _SCROLL_DOWN_JS = """() => {
@@ -53,11 +59,11 @@ _COUNT_POSTS_JS = """() => {
 }"""
 
 
-async def scroll_feed_down(page: Page, *, delay: float = 1.5) -> None:
+async def scroll_feed_down(page: PageLike, *, delay: float = 1.5) -> None:
     """Scroll the feed container down and nudge the last visible post into view."""
     await page.evaluate(_SCROLL_DOWN_JS)
     await asyncio.sleep(delay)
 
 
-async def count_posts_in_dom(page: Page) -> int:
+async def count_posts_in_dom(page: PageLike) -> int:
     return int(await page.evaluate(_COUNT_POSTS_JS))

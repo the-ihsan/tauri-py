@@ -7,6 +7,7 @@ from typing import Any
 
 from .base import BaseTask, EmitFn, TaskContext, TaskInput
 from .registry import get_task_factory
+from .runner import TaskRunner
 
 
 def _to_inputs(raw: Any) -> list[TaskInput]:
@@ -71,7 +72,7 @@ class TaskManager:
         if resume:
             ctx.log("Resuming from saved checkpoint")
         try:
-            await task.run()
+            await TaskRunner().run(task, ctx)
             if task.control.stopped:
                 ctx.status("stopped")
             else:
@@ -87,13 +88,13 @@ class TaskManager:
         if task is None:
             return {"ok": True, "found": False, "running": False}
         if action == "pause":
-            task.pause()
+            task.control.pause()
             task.ctx.status("paused")
         elif action == "resume":
-            task.resume()
+            task.control.resume()
             task.ctx.status("running")
         elif action == "stop":
-            task.stop()
+            task.control.stop()
         else:
             return {"ok": False, "found": True, "error": f"unknown action '{action}'"}
         return {"ok": True, "found": True}

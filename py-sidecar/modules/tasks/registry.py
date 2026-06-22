@@ -11,9 +11,12 @@ TaskFactory = Callable[[TaskContext], BaseTask]
 _TASKS: dict[str, TaskFactory] = {}
 
 
-def register_task(key: str, factory: TaskFactory) -> None:
+def register_task(key: str, factory: TaskFactory | type[BaseTask]) -> None:
     if key in _TASKS:
         raise ValueError(f"task '{key}' is already registered")
+    if isinstance(factory, type) and issubclass(factory, BaseTask):
+        cls = factory
+        factory = lambda ctx: cls(ctx)  # noqa: E731 - tiny class adapter
     _TASKS[key] = factory
 
 
