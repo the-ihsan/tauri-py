@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -11,17 +11,11 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useRunItems } from "@/hooks/useRuns";
-import { RunsApi, type RunInput } from "@/lib/runs";
 
 import type { LinkedInMedia, LinkedInPost } from "../types";
 
 function asPost(item: { data: Record<string, unknown> }): LinkedInPost {
   return item.data as unknown as LinkedInPost;
-}
-
-function inputLabel(input: RunInput): string {
-  const data = input.data as { profile_url?: string };
-  return data.profile_url || `Input #${input.ordinal + 1}`;
 }
 
 function countNumber(value: number | null): string {
@@ -181,11 +175,15 @@ function PostDetailDialog({
   );
 }
 
-export function PostsResultsView({ runId }: { runId: string }) {
-  const [inputs, setInputs] = useState<RunInput[]>([]);
-  const [selectedInputId, setSelectedInputId] = useState<string | null>(null);
-  const [inputsLoading, setInputsLoading] = useState(false);
-  const [inputsError, setInputsError] = useState<string | null>(null);
+export function PostsResultsView({
+  runId,
+  selectedInputId = null,
+  onRefreshInputs,
+}: {
+  runId: string;
+  selectedInputId?: string | null;
+  onRefreshInputs?: () => void;
+}) {
   const [viewPost, setViewPost] = useState<LinkedInPost | null>(null);
   const {
     items,
@@ -194,112 +192,24 @@ export function PostsResultsView({ runId }: { runId: string }) {
     refresh: refreshItems,
   } = useRunItems(runId, selectedInputId);
 
-  const loadInputs = useCallback(async () => {
-    setInputsLoading(true);
-    setInputsError(null);
-    try {
-      setInputs(await RunsApi.inputs(runId));
-    } catch (err) {
-      setInputsError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setInputsLoading(false);
-    }
-  }, [runId]);
-
-  useEffect(() => {
-    void loadInputs();
-  }, [loadInputs]);
-
   const refresh = () => {
-    void loadInputs();
+    onRefreshInputs?.();
     void refreshItems();
   };
-
-  const error = inputsError ?? itemsError;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Inputs ({inputs.length})</h3>
+        <h3 className="text-sm font-medium">
+          Posts ({items.length}
+          {itemsLoading ? ", loading…" : ""})
+        </h3>
         <Button variant="outline" size="sm" onClick={refresh}>
           Refresh
         </Button>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
-
-      <div className="rounded-lg border">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2 font-medium">#</th>
-              <th className="px-3 py-2 font-medium">Profile</th>
-              <th className="px-3 py-2 font-medium">Status</th>
-              <th className="px-3 py-2 text-right font-medium">Filter</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              className={
-                selectedInputId === null
-                  ? "bg-primary/10"
-                  : "hover:bg-muted/40"
-              }
-            >
-              <td className="px-3 py-2 text-muted-foreground" colSpan={3}>
-                All inputs
-              </td>
-              <td className="px-3 py-2 text-right">
-                <Button
-                  variant={selectedInputId === null ? "secondary" : "ghost"}
-                  size="xs"
-                  onClick={() => setSelectedInputId(null)}
-                >
-                  All
-                </Button>
-              </td>
-            </tr>
-            {inputs.map((input) => (
-              <tr
-                key={input.id}
-                className={
-                  selectedInputId === input.id
-                    ? "border-t bg-primary/10"
-                    : "border-t hover:bg-muted/40"
-                }
-              >
-                <td className="px-3 py-2 text-muted-foreground">
-                  {input.ordinal + 1}
-                </td>
-                <td className="max-w-0 truncate px-3 py-2" title={inputLabel(input)}>
-                  {inputLabel(input)}
-                </td>
-                <td className="px-3 py-2 capitalize text-muted-foreground">
-                  {input.status}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <Button
-                    variant={
-                      selectedInputId === input.id ? "secondary" : "ghost"
-                    }
-                    size="xs"
-                    onClick={() => setSelectedInputId(input.id)}
-                  >
-                    Select
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">
-          Posts ({items.length}
-          {itemsLoading || inputsLoading ? ", loading…" : ""})
-        </h3>
-      </div>
+      {itemsError && <p className="text-sm text-destructive">{itemsError}</p>}
 
       <ScrollArea className="min-h-0 flex-1 rounded-lg border">
         {items.length === 0 ? (

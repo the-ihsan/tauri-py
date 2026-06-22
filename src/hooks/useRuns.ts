@@ -5,6 +5,7 @@ import {
   type RunControlAction,
   type RunEvent,
   type RunInfo,
+  type RunInput,
   type RunItem,
   type RunLogPayload,
   type RunStatusPayload,
@@ -182,6 +183,32 @@ export function useRunLog(runId: string | null) {
   }, [runId]);
 
   return lines;
+}
+
+/** Loads the inputs (profiles) for a run. */
+export function useRunInputs(runId: string) {
+  const [inputs, setInputs] = useState<RunInput[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!runId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setInputs(await RunsApi.inputs(runId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [runId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return { inputs, loading, error, refresh };
 }
 
 function sortItems(items: RunItem[]) {
